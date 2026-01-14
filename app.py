@@ -1,107 +1,176 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+import numpy as np
+import plotly.express as px
 
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+
+# --------------------------------------------------
 # Page config
+# --------------------------------------------------
 st.set_page_config(
-    page_title="Data Visualizer",
-    layout="centered",
-    page_icon="📊"
+    page_title="Smart Data Visualizer",
+    page_icon="📊",
+    layout="wide"
 )
 
-st.title("📊 Data Visualization Web App")
+st.title("📊 Smart Data Visualization Dashboard")
 
-# Upload file
-uploaded_file = st.file_uploader(
-    "Upload your dataset (CSV)",
-    type=["csv"]
+# --------------------------------------------------
+# Sidebar: File Upload
+# --------------------------------------------------
+st.sidebar.header("📁 Upload Datasets")
+
+uploaded_files = st.sidebar.file_uploader(
+    "Upload one or more CSV files",
+    type=["csv"],
+    accept_multiple_files=True
 )
 
-if uploaded_file is not None:
-    # Read dataset
-    df = pd.read_csv(uploaded_file)
+if not uploaded_files:
+    st.info("Upload CSV files from the sidebar to begin.")
+    st.stop()
 
-    st.subheader("Dataset Preview")
-    st.dataframe(df.head())
+# --------------------------------------------------
+# Load selected dataset
+# --------------------------------------------------
+file_names = [file.name for file in uploaded_files]
+selected_file = st.sidebar.selectbox("Select a dataset", file_names)
 
-    # Show dataset info
-    st.subheader("Dataset Info")
-    st.write(f"Rows: {df.shape[0]} | Columns: {df.shape[1]}")
+@st.cache_data
+def load_csv(file):
+    return pd.read_csv(file)
 
-    # Missing values summary
-    st.subheader("Missing Values")
-    missing_data = df.isnull().sum()
-    st.write(missing_data[missing_data > 0])
+df = load_csv(
+    next(file for file in uploaded_files if file.name == selected_file)
+)
 
-    # Handle missing values
-    st.subheader("Handle Missing Values")
-    missing_option = st.selectbox(
-        "Choose how to handle missing values",
-        ["Do nothing", "Drop rows with missing values", "Fill numeric with mean", "Fill numeric with median"]
+# --------------------------------------------------
+# Sidebar: Data Cleaning
+# --------------------------------------------------
+st.sidebar.header("🧹 Data Cleaning")
+
+missing_option = st.sidebar.selectbox(
+    "Handle missing values",
+    ["Do nothing", "Drop rows", "Fill numeric with mean", "Fill numeric with median"]
+)
+
+if missing_option == "Drop rows":
+    df = df.dropna()
+
+elif missing_option == "Fill numeric with mean":
+    num_cols = df.select_dtypes(include=np.number).columns
+    df[num_cols] = df[num_cols].fillna(df[num_cols].mean())
+
+elif missing_option == "Fill numeric with median":
+    num_cols = df.select_dtypes(include=np.number).columns
+    df[num_cols] = df[num_cols].fillna(df[num_cols].median())
+
+# --------------------------------------------------
+# Dataset Overview
+# --------------------------------------------------
+st.subheader("📄 Dataset Overview")
+
+col1, col2, col3 = st.columns(3)
+col1.metric("Rows", df.shape[0])
+col2.metric("Columns", df.shape[1])
+col3.metric("Missing Values", int(df.isnull().sum().sum()))
+
+st.dataframe(df.head(), use_container_width=True)
+
+numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
+categorical_cols = df.select_dtypes(exclude=np.number).columns.tolist()
+
+# --------------------------------------------------
+# Auto-detect best plot
+# --------------------------------------------------
+st.subheader("🤖 Auto-Detected Insight")
+
+if len(numeric_cols) >= 2:
+    auto_plot = "Correlation Heatmap"
+elif len(categorical_cols) >= 1:
+    auto_plot = "Count Plot"
+elif len(numeric_cols) == 1:
+    auto_plot = "Histogram"
+else:
+    auto_plot = "No suitable plot detected"
+
+st.info(f"Suggested visualization: **{auto_plot}**")
+
+# --------------------------------------------------
+# Visualization Section
+# --------------------------------------------------
+st.subheader("📈 Visualization")
+
+plot_type = st.selectbox(
+    "Select Plot Type",
+    [
+        "Line Plot",
+        "Bar Chart",
+        "Scatter Plot",
+        "Histogram",
+        "Count Plot",
+        "Correlation Heatmap",
+        "PCA Plot (sklearn)"
+    ]
+)
+
+fig = None
+
+if plot_type in ["Line Plot", "Bar Chart", "Scatter Plot"]:
+    x = st.selectbox("X-axis", df.columns)
+    y = st.selectbox("Y-axis", numeric_cols)
+
+    if plot_type == "Line Plot":
+        fig = px.line(df, x=x, y=y)
+    elif plot_type == "Bar Chart":
+        fig = px.bar(df, x=x, y=y)
+    else:
+        fig = px.scatter(df, x=x, y=y)
+
+elif plot_type == "Histogram":
+    x = st.selectbox("Column", numeric_cols)
+    fig = px.histogram(df, x=x)
+
+elif plot_type == "Count Plot":
+    x = st.selectbox("Column", categorical_cols)
+    fig = px.histogram(df, x=x)
+
+elif plot_type == "Correlation Heatmap":
+    corr = df[numeric_cols].corr()
+    fig = px.imshow(
+        corr,
+        text_auto=True,
+        color_continuous_scale="RdBu_r",
+        title="Correlation Heatmap"
     )
 
-    if missing_option == "Drop rows with missing values":
-        df = df.dropna()
-        st.success("Rows with missing values dropped.")
+elif plot_type == "PCA Plot (sklearn)":
+    if len(numeric_cols) < 2:
+        st.warning("Need at least 2 numeric columns for PCA.")
+    else:
+        scaled = StandardScaler().fit_transform(df[numeric_cols])
+        pca = PCA(n_components=2)
+        pca_data = pca.fit_transform(scaled)
 
-    elif missing_option == "Fill numeric with mean":
-        numeric_cols = df.select_dtypes(include="number").columns
-        df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
-        st.success("Missing numeric values filled with mean.")
+        pca_df = pd.DataFrame(pca_data, columns=["PC1", "PC2"])
+        fig = px.scatter(
+            pca_df,
+            x="PC1",
+            y="PC2",
+            title="PCA Projection (2D)"
+        )
 
-    elif missing_option == "Fill numeric with median":
-        numeric_cols = df.select_dtypes(include="number").columns
-        df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].median())
-        st.success("Missing numeric values filled with median.")
-
-    # Column lists
-    all_columns = df.columns.tolist()
-    numeric_columns = df.select_dtypes(include="number").columns.tolist()
-
-    st.subheader("Visualization Settings")
-
-    plot_type = st.selectbox(
-        "Select plot type",
-        ["Line Plot", "Bar Chart", "Scatter Plot", "Histogram", "Count Plot"]
+# --------------------------------------------------
+# Display Plot
+# --------------------------------------------------
+if fig is not None:
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={
+            "displaylogo": False,
+            "modeBarButtonsToRemove": ["toImage"]
+        }
     )
-
-    # Axis selection based on plot type
-    if plot_type in ["Line Plot", "Bar Chart", "Scatter Plot"]:
-        x_axis = st.selectbox("Select X-axis", all_columns)
-        y_axis = st.selectbox("Select Y-axis", numeric_columns)
-
-    elif plot_type == "Histogram":
-        x_axis = st.selectbox("Select column", numeric_columns)
-        y_axis = None
-
-    elif plot_type == "Count Plot":
-        x_axis = st.selectbox("Select column", all_columns)
-        y_axis = None
-
-    if st.button("Generate Plot"):
-        fig, ax = plt.subplots(figsize=(6, 4))
-
-        try:
-            if plot_type == "Line Plot":
-                sns.lineplot(data=df, x=x_axis, y=y_axis, ax=ax)
-
-            elif plot_type == "Bar Chart":
-                sns.barplot(data=df, x=x_axis, y=y_axis, ax=ax)
-
-            elif plot_type == "Scatter Plot":
-                sns.scatterplot(data=df, x=x_axis, y=y_axis, ax=ax)
-
-            elif plot_type == "Histogram":
-                sns.histplot(df[x_axis], kde=True, ax=ax)
-
-            elif plot_type == "Count Plot":
-                sns.countplot(data=df, x=x_axis, ax=ax)
-
-            ax.set_title(plot_type)
-            ax.tick_params(axis="x", rotation=45)
-
-            st.pyplot(fig)
-
-        except Exception as e:
-            st.error(f"Error generating plot: {e}")
