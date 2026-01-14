@@ -77,7 +77,7 @@ col1.metric("Rows", df.shape[0])
 col2.metric("Columns", df.shape[1])
 col3.metric("Missing Values", int(df.isnull().sum().sum()))
 
-st.dataframe(df.head(), use_container_width=True)
+st.dataframe(df.head(), width="stretch")
 
 numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
 categorical_cols = df.select_dtypes(exclude=np.number).columns.tolist()
@@ -168,7 +168,7 @@ elif plot_type == "PCA Plot (sklearn)":
 if fig is not None:
     st.plotly_chart(
         fig,
-        use_container_width=True,
+        width="stretch",
         config={
             "displaylogo": False,
             "modeBarButtonsToRemove": ["toImage"]
